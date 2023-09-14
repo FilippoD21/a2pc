@@ -1,4 +1,5 @@
-# Android 2 Linux Notifications Server
-**Android 2 Linux Notifications** (**A2LN**) is a way to display your Android phone notifications on your Linux computer.
+# Android 2 Personal Computer Notifications (receiver)
 
-It consists of an app on your phone and a server on your computer which communicate securely over LAN. More information can be found at [patri9ck.dev/a2ln](https://patri9ck.dev/a2ln/).
+**Android 2 Personal Computer Notifications** (**A2PC**) is a OS indipendent way to display your Android phone notifications on your personal computer via the terminal. It need a client part  ([A2LN](https://github.com/patri9ck/a2ln-app)) on your Android phone.
+
+This is a fork of the server part of [A2LN]([patri9ck.dev | Personal stuff and project information](https://patri9ck.dev/a2ln/)), the original project developed by [patri9ck](https://github.com/patri9ck), to display notifications on GNU/Linux computers.

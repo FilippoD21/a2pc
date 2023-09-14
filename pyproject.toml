@@ -1,17 +1,17 @@
 [project]
-name = "a2ln"
-version = "1.1.10"
-description = "A way to display Android phone notifications on Linux"
+name = "a2pc"
+version = "1.0"
+description = "A OS indipendent way to display Android phone notifications on PC via the terminal"
 readme = "pypi.md"
 requires-python = ">=3.8"
 license = { file = "COPYING" }
 authors = [
-    { name = "patri9ck", email = "patri9ck@gmail.com" },
+    { name = "FilippoD21", email = "filippod@dib21.it" },
 ]
 classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Programming Language :: Python",
-    "Operating System :: POSIX :: Linux",
+    "Operating System :: OS Indipendent",
     "Topic :: Desktop Environment",
     "Topic :: Utilities"
 ]
@@ -21,13 +21,12 @@ dynamic = ["dependencies"]
 dependencies = { file = ["requirements.txt"] }
 
 [project.urls]
-Homepage = "https://patri9ck.dev/a2ln/"
-Repository = "https://github.com/patri9ck/a2ln-server"
-Issues = "https://github.com/patri9ck/a2ln-server/issues"
+Repository = "https://github.com/FilippoD21/a2pc"
+Issues = "https://github.com/FilippoD21/a2pc/issues"
 
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
-a2ln = "a2ln:main"
+a2pc = "a2pc:main"

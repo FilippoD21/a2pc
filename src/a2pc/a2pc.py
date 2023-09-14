@@ -1,4 +1,5 @@
-#  Copyright (C) 2023  Patrick Zwick and contributors
+#  Modified work Copyright (C) 2023  Filippo Dibenedetto and contributors
+#  Original work Copyright (C) 2023  Patrick Zwick and contributors
 #
 #  This program is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -24,9 +25,7 @@ import time
 import traceback
 from argparse import Namespace
 from pathlib import Path
-from typing import Optional
 
-import gi
 import qrcode
 import setproctitle
 import zmq
@@ -35,9 +34,7 @@ import zmq.auth.thread
 import zmq.error
 from PIL import Image
 
-gi.require_version('Notify', '0.7')
-
-from gi.repository import Notify
+from time import localtime, strftime
 
 BOLD = "\033[1m"
 GREEN = "\033[0;32m"
@@ -51,32 +48,34 @@ RED_PREFIX = f"{RED}{PREFIX}{RESET}"
 
 def main():
     try:
-        setproctitle.setproctitle("a2ln")
+        setproctitle.setproctitle("a2pc")
 
-        main_directory = Path(Path.home(), os.environ.get("XDG_CONFIG_HOME") or ".config", "a2ln")
+        main_directory = Path(Path.home(), os.environ.get("XDG_CONFIG_HOME") or ".config", "a2pc")
 
-        clients_directory = main_directory / "clients"
-        server_directory = main_directory / "server"
+        client_public_keys_directory = main_directory / "clients"
+        own_keys_directory = main_directory / "server"
 
         main_directory.mkdir(exist_ok=True)
 
-        clients_directory.mkdir(exist_ok=True)
+        client_public_keys_directory.mkdir(exist_ok=True)
 
-        if not server_directory.exists():
-            server_directory.mkdir()
+        if not own_keys_directory.exists():
+            own_keys_directory.mkdir()
 
-            zmq.auth.create_certificates(server_directory, "server")
+            zmq.auth.create_certificates(own_keys_directory, "server")
 
         args = parse_args()
 
-        own_public_key, own_secret_key = zmq.auth.load_certificate(server_directory / "server.key_secret")
+        own_public_key, own_secret_key = zmq.auth.load_certificate(own_keys_directory / "server.key_secret")
 
-        notification_server, pairing_server = None, None
+        notification_server = None
+        pairing_server = None
 
         if not args.no_notification_server:
-            notification_server = NotificationServer(clients_directory, own_public_key, own_secret_key,
-                                                     args.notification_ip, args.notification_port, args.command,
-                                                     args.title_format, args.body_format)
+            notification_server = NotificationServer(client_public_keys_directory, own_public_key, own_secret_key,
+                                                     args.notification_ip, args.notification_port, args.title_format,
+                                                     args.body_format,
+                                                     args.command)
 
             notification_server.start()
 
@@ -84,8 +83,8 @@ def main():
             if notification_server is not None and notification_server.is_alive():
                 time.sleep(1)
 
-            pairing_server = PairingServer(clients_directory, own_public_key, args.pairing_ip,
-                                           args.pairing_port, args.notification_port, notification_server)
+            pairing_server = PairingServer(client_public_keys_directory, own_public_key, args.pairing_ip,
+                                           args.pairing_port, notification_server)
 
             pairing_server.start()
 
@@ -98,7 +97,7 @@ def main():
 
 
 def parse_args() -> Namespace:
-    argument_parser = argparse.ArgumentParser(description="A way to display Android phone notifications on Linux")
+    argument_parser = argparse.ArgumentParser(description="A way to display Android phone notifications on PC")
 
     argument_parser.add_argument("--no-notification-server", action="store_true", default=False,
                                  help="Do not start the notification server")
@@ -129,19 +128,11 @@ def get_ip() -> str:
         return client.getsockname()[0]
 
 
-def send_notification(title: str, text: str, picture_file: Optional[tempfile._TemporaryFileWrapper] = None) -> None:
-    if picture_file is None:
-        Notify.Notification.new(title, text, "dialog-information").show()
-    else:
-        Notify.Notification.new(title, text, picture_file.name).show()
-
-        picture_file.close()
-
-    print(f"{GREEN_PREFIX}Sent notification (Title: {BOLD}{title}{RESET}, Text: {BOLD}{text}{RESET})")
+def send_notification(title: str, text: str, picture_file: tempfile = None) -> None:
+    print(f"{GREEN_PREFIX}[{strftime('%Y-%m-%d %H:%M:%S', localtime())}] {BOLD}{title}{RESET}: {text}")
 
 
-def inform(name: str, ip: Optional[str] = None, port: Optional[int] = None,
-           error: Optional[zmq.error.ZMQError] = None) -> None:
+def inform(name: str, ip: str = None, port: int = None, error: zmq.error.ZMQError = None) -> None:
     if error is None:
         print(
             f"{GREEN_PREFIX}{name.capitalize()} server running on IP {BOLD}{ip}{RESET} and port {BOLD}{port}{RESET}.")
@@ -161,20 +152,19 @@ def inform(name: str, ip: Optional[str] = None, port: Optional[int] = None,
 
 
 class NotificationServer(threading.Thread):
-    def __init__(self, clients_directory: Path, own_public_key: bytes, own_secret_key: bytes, ip: str,
-                 port: int, command: Optional[str], title_format: Optional[str], body_format: Optional[str]):
+    def __init__(self, client_public_keys_directory: Path, own_public_key: bytes, own_secret_key: bytes, ip: str,
+                 port: int, title_format: str, body_format: str, command: str):
         super(NotificationServer, self).__init__(daemon=True)
 
-        self.clients_directory = clients_directory
+        self.client_public_keys_directory = client_public_keys_directory
         self.own_public_key = own_public_key
         self.own_secret_key = own_secret_key
         self.ip = ip
         self.port = port
+        self.title_format = title_format
+        self.body_format = body_format
         self.command = command
-        self.title_format = "{title}" if title_format is None else title_format
-        self.body_format = "{body}" if body_format is None else body_format
-
-        self.authenticator: Optional[zmq.auth.thread.ThreadAuthenticator] = None
+        self.authenticator = None
 
     def run(self) -> None:
         super(NotificationServer, self).run()
@@ -203,10 +193,7 @@ class NotificationServer(threading.Thread):
 
                 inform("notification", ip=self.ip, port=self.port)
 
-                print(
-                    "Do not forget to autostart the notification server. More information can be found at https://patri9ck.dev/a2ln/server.html#autostarting.")
-
-                Notify.init("Android 2 Linux Notifications")
+                print("Consider to autostart the notification server")
 
                 while True:
                     request = server.recv_multipart()
@@ -215,17 +202,11 @@ class NotificationServer(threading.Thread):
 
                     if length != 3 and length != 4:
                         continue
-
-                    if length == 4:
-                        picture_file = tempfile.NamedTemporaryFile(suffix=".png")
-
-                        Image.open(io.BytesIO(request[3])).save(picture_file.name)
-                    else:
-                        picture_file = None
-
+                        
                     app = request[0].decode("utf-8")
                     title = request[1].decode("utf-8")
                     body = request[2].decode("utf-8")
+                    picture_file = None
 
                     def replace(text: str) -> str:
                         return text.replace("{app}", app).replace("{title}", title).replace("{body}", body)
@@ -239,19 +220,18 @@ class NotificationServer(threading.Thread):
 
     def update_client_public_keys(self) -> None:
         if self.authenticator is not None and self.authenticator.is_alive():
-            self.authenticator.configure_curve(domain="*", location=self.clients_directory.as_posix())
+            self.authenticator.configure_curve(domain="*", location=self.client_public_keys_directory.as_posix())
 
 
 class PairingServer(threading.Thread):
-    def __init__(self, clients_directory: Path, own_public_key: bytes, ip: str, port: Optional[int],
-                 notification_port: int, notification_server: Optional[NotificationServer]):
+    def __init__(self, client_public_keys_directory: Path, own_public_key: bytes, ip: str, port: int,
+                 notification_server: NotificationServer):
         super(PairingServer, self).__init__(daemon=True)
 
-        self.clients_directory = clients_directory
+        self.client_public_keys_directory = client_public_keys_directory
         self.own_public_key = own_public_key
         self.ip = ip
         self.port = port
-        self.notification_port = notification_port
         self.notification_server = notification_server
 
     def run(self) -> None:
@@ -277,8 +257,7 @@ class PairingServer(threading.Thread):
 
             inform("pairing", ip=self.ip, port=self.port)
 
-            print(
-                "To pair a new device, open the Android 2 Linux Notifications app and scan this QR code or enter the following:")
+            print("To pair a new device, open the Android 2 Linux Notifications app and scan this QR code or enter the following:")
             print(f"IP: {BOLD}{ip}{RESET}")
             print(f"Port: {BOLD}{self.port}{RESET}")
             print(f"{GREEN_PREFIX}Public Key: {BOLD}{self.own_public_key.decode('utf-8')}{RESET}")
@@ -303,13 +282,13 @@ class PairingServer(threading.Thread):
 
                     continue
 
-                with open((self.clients_directory / client_ip).as_posix() + ".key", "w",
-                          encoding="utf-8") as client_file:
-                    client_file.write("metadata\n"
+                with open((self.client_public_keys_directory / client_ip).as_posix() + ".key", "w",
+                          encoding="utf-8") as client_key_file:
+                    client_key_file.write("metadata\n"
                                           "curve\n"
                                           f"    public-key = \"{client_public_key}\"\n")
 
-                server.send_multipart([str(self.notification_port).encode("utf-8"), self.own_public_key])
+                server.send_multipart([str(self.notification_server.port).encode("utf-8"), self.own_public_key])
 
                 if self.notification_server is not None:
                     self.notification_server.update_client_public_keys()
