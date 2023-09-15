@@ -3,7 +3,7 @@ name = "a2pc"
 version = "1.0"
 description = "A OS indipendent way to display Android phone notifications on PC via the terminal"
 readme = "pypi.md"
-requires-python = ">=3.8, <=3.9"
+requires-python = ">=3.8, <3.11"
 license = { file = "COPYING" }
 authors = [
     { name = "FilippoD21", email = "filippod@dib21.it" },
