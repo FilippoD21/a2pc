@@ -37,6 +37,7 @@ from PIL import Image
 from time import localtime, strftime
 
 BOLD = "\033[1m"
+BLUE = "\033[0;34m"
 GREEN = "\033[0;32m"
 RED = "\033[0;31m"
 RESET = "\033[0m"
@@ -73,10 +74,7 @@ def main():
 
         if not args.no_notification_server:
             notification_server = NotificationServer(client_public_keys_directory, own_public_key, own_secret_key,
-                                                     args.notification_ip, args.notification_port, args.title_format,
-                                                     args.body_format,
-                                                     args.command)
-
+                                                     args.notification_ip, args.notification_port)
             notification_server.start()
 
         if not args.no_pairing_server:
@@ -111,12 +109,6 @@ def parse_args() -> Namespace:
                                  help="The IP to listen for pairing requests (by default *)")
     argument_parser.add_argument("--pairing-port", type=int,
                                  help="The port to listen for pairing requests (by default random)")
-    argument_parser.add_argument("--title-format", type=str, default="{title}",
-                                 help="The format of the title. Available placeholders: {app}, {title}, {body} (by default {title})")
-    argument_parser.add_argument("--body-format", type=str, default="{body}",
-                                 help="The format of the body. Available placeholders: {app}, {title}, {body} (by default {body})")
-    argument_parser.add_argument("--command", type=str,
-                                 help="A shell command to run whenever a notification arrives. Available placeholders: {app}, {title}, {body} (by default none)")
 
     return argument_parser.parse_args()
 
@@ -128,8 +120,8 @@ def get_ip() -> str:
         return client.getsockname()[0]
 
 
-def send_notification(title: str, text: str, picture_file: tempfile = None) -> None:
-    print(f"{GREEN_PREFIX}[{strftime('%Y-%m-%d %H:%M:%S', localtime())}] {BOLD}{title}{RESET}: {text}")
+def send_notification(app: str, title: str, text: str) -> None:
+    print(f"{GREEN_PREFIX}[{strftime('%Y-%m-%d %H:%M:%S', localtime())}] ({BLUE}{BOLD}{app}{RESET}) {BOLD}{title}{RESET}: {text}")
 
 
 def inform(name: str, ip: str = None, port: int = None, error: zmq.error.ZMQError = None) -> None:
@@ -152,8 +144,7 @@ def inform(name: str, ip: str = None, port: int = None, error: zmq.error.ZMQErro
 
 
 class NotificationServer(threading.Thread):
-    def __init__(self, client_public_keys_directory: Path, own_public_key: bytes, own_secret_key: bytes, ip: str,
-                 port: int, title_format: str, body_format: str, command: str):
+    def __init__(self, client_public_keys_directory: Path, own_public_key: bytes, own_secret_key: bytes, ip: str, port: int):
         super(NotificationServer, self).__init__(daemon=True)
 
         self.client_public_keys_directory = client_public_keys_directory
@@ -161,9 +152,6 @@ class NotificationServer(threading.Thread):
         self.own_secret_key = own_secret_key
         self.ip = ip
         self.port = port
-        self.title_format = title_format
-        self.body_format = body_format
-        self.command = command
         self.authenticator = None
 
     def run(self) -> None:
@@ -205,18 +193,11 @@ class NotificationServer(threading.Thread):
                         
                     app = request[0].decode("utf-8")
                     title = request[1].decode("utf-8")
-                    body = request[2].decode("utf-8")
-                    picture_file = None
-
-                    def replace(text: str) -> str:
-                        return text.replace("{app}", app).replace("{title}", title).replace("{body}", body)
+                    text = request[2].decode("utf-8")
 
                     threading.Thread(target=send_notification,
-                                     args=(replace(self.title_format), replace(self.body_format), picture_file),
+                                     args=(app, title, text),
                                      daemon=True).start()
-
-                    if self.command is not None:
-                        subprocess.Popen(replace(self.command), shell=True)
 
     def update_client_public_keys(self) -> None:
         if self.authenticator is not None and self.authenticator.is_alive():
