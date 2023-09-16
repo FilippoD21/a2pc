@@ -40,6 +40,7 @@ BOLD = "\033[1m"
 BLUE = "\033[0;34m"
 GREEN = "\033[0;32m"
 RED = "\033[0;31m"
+BLACK_ON_GREEN = "\033[0;30;42m"
 RESET = "\033[0m"
 
 PREFIX = "==> "
@@ -74,7 +75,7 @@ def main():
 
         if not args.no_notification_server:
             notification_server = NotificationServer(client_public_keys_directory, own_public_key, own_secret_key,
-                                                     args.notification_ip, args.notification_port)
+                                                     args.notification_ip, args.notification_port, args.multiline)
             notification_server.start()
 
         if not args.no_pairing_server:
@@ -109,6 +110,8 @@ def parse_args() -> Namespace:
                                  help="The IP to listen for pairing requests (by default *)")
     argument_parser.add_argument("--pairing-port", type=int,
                                  help="The port to listen for pairing requests (by default random)")
+    argument_parser.add_argument("--multiline", action="store_true", default=False,
+                                 help="Display the notification on multiple lines")
 
     return argument_parser.parse_args()
 
@@ -120,8 +123,15 @@ def get_ip() -> str:
         return client.getsockname()[0]
 
 
-def send_notification(app: str, title: str, text: str) -> None:
-    print(f"{GREEN_PREFIX}[{strftime('%Y-%m-%d %H:%M:%S', localtime())}] ({BLUE}{BOLD}{app}{RESET}) {BOLD}{title}{RESET}: {text}")
+def send_notification(app: str, title: str, text: str, multiline: bool) -> None:
+    if multiline:
+        print(f"[{GREEN}{BOLD}{strftime('%Y-%m-%d %H:%M:%S', localtime())}{RESET}]:")
+        print(f"   {BLUE}{BOLD}{app}{RESET}")
+        print(f"   {BOLD}{title}{RESET}")
+        print(f"   {text}")
+    else:
+        print(f"{GREEN_PREFIX}[{strftime('%Y-%m-%d %H:%M:%S', localtime())}] ({BLUE}{BOLD}{app}{RESET}) {BOLD}{title}{RESET}: {text}")
+    
 
 
 def inform(name: str, ip: str = None, port: int = None, error: zmq.error.ZMQError = None) -> None:
@@ -144,7 +154,7 @@ def inform(name: str, ip: str = None, port: int = None, error: zmq.error.ZMQErro
 
 
 class NotificationServer(threading.Thread):
-    def __init__(self, client_public_keys_directory: Path, own_public_key: bytes, own_secret_key: bytes, ip: str, port: int):
+    def __init__(self, client_public_keys_directory: Path, own_public_key: bytes, own_secret_key: bytes, ip: str, port: int, multiline: bool):
         super(NotificationServer, self).__init__(daemon=True)
 
         self.client_public_keys_directory = client_public_keys_directory
@@ -153,6 +163,7 @@ class NotificationServer(threading.Thread):
         self.ip = ip
         self.port = port
         self.authenticator = None
+        self.multiline = multiline
 
     def run(self) -> None:
         super(NotificationServer, self).run()
@@ -195,9 +206,7 @@ class NotificationServer(threading.Thread):
                     title = request[1].decode("utf-8")
                     text = request[2].decode("utf-8")
 
-                    threading.Thread(target=send_notification,
-                                     args=(app, title, text),
-                                     daemon=True).start()
+                    threading.Thread(target=send_notification, args=(app, title, text, self.multiline), daemon=True).start()
 
     def update_client_public_keys(self) -> None:
         if self.authenticator is not None and self.authenticator.is_alive():
